@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type MutableRefObject, type RefObject } fr
 import type { HandLandmarkerResult } from '@mediapipe/tasks-vision'
 import { detectPointingGesture } from '../gesture/pointingGesture'
 import { detectHandControlPose } from '../gesture/handPose'
-import { getPinchStrength } from '../gesture/pinchGesture'
+import { getPinchStrength, isPinching } from '../gesture/pinchGesture'
 import { projectToPreview, type ScreenPoint } from '../tracking/projection'
 import type { NormalizedBox, PointingRay } from './rayTargeting'
 import { makePointingRay, rayIntersectsBox } from './rayTargeting'
@@ -24,8 +24,6 @@ export type LampTargetingState = {
 const INITIAL: LampTargetingState = {
   ray: null, pointing: false, aiming: false, targeted: false, targetDevice: null, targetEntry: 0, selectorHandIndex: null, selectorHandedness: null, dwellProgress: 0, width: 0, height: 0
 }
-
-const SELECTOR_PINCH_THRESHOLD = 0.34
 
 function smoothPoint(previous: ScreenPoint, next: ScreenPoint, amount: number): ScreenPoint {
   return { x: previous.x + (next.x - previous.x) * amount, y: previous.y + (next.y - previous.y) * amount }
@@ -67,6 +65,8 @@ export function useLampTargeting(
     let dwellStartedAt = 0
     let dwellDevice: 'lamp' | 'speaker' | null = null
     let lastHitAt = 0
+    let selectorPinchActive = false
+    let previousSelectorPinchActive = false
     let targeted = false
     let targetDevice: 'lamp' | 'speaker' | null = null
     let selectorHandIndex: number | null = null
@@ -91,7 +91,9 @@ export function useLampTargeting(
 
       const selectedHand = targeted && handIndexes.length > 0 ? hands[handIndexes[0]] : undefined
       const pinchStrength = selectedHand ? getPinchStrength(selectedHand) : null
-      const selectorPinching = pinchStrength !== null && pinchStrength <= SELECTOR_PINCH_THRESHOLD
+      previousSelectorPinchActive = selectorPinchActive
+      selectorPinchActive = isPinching(pinchStrength, selectorPinchActive)
+      if (previousSelectorPinchActive && !selectorPinchActive) lastHitAt = now
 
       for (const handIndex of handIndexes) {
         const landmarks = hands[handIndex]
@@ -150,8 +152,8 @@ export function useLampTargeting(
       } else {
         dwellStartedAt = 0
         dwellDevice = null
-        if (selectorPinching) {
-          // The selecting hand may fold its index while pinching; hold selection until release.
+        if (selectorPinchActive && targeted) {
+          // Pinching locks the selected target; start the 700 ms grace period on release.
           lastHitAt = now
         } else if (targeted && now - lastHitAt > 700) {
           targeted = false

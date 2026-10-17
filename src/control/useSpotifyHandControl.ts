@@ -5,7 +5,7 @@ import { getPalmCenterY } from '../gesture/handPose'
 const HEIGHT_STEP = 0.045
 const STABILITY_MS = 100
 
-/** Uses the hand opposite the pointing hand to adjust Spotify volume by height. */
+/** Uses the hand opposite a speaker target, or hand two during a scene, to set Spotify volume by height. */
 export function useSpotifyHandControl(
   resultsRef: MutableRefObject<HandLandmarkerResult | null>,
   enabled: boolean,
@@ -38,7 +38,9 @@ export function useSpotifyHandControl(
         ? result?.handedness.findIndex(categories => categories[0]?.categoryName === input.selectorHandedness) ?? -1
         : -1
       const selectorIndex = handedIndex >= 0 ? handedIndex : input.selectorHandedness ? -1 : input.selectorHandIndex ?? -1
-      const controllerIndex = hands.length === 2 && selectorIndex >= 0 ? 1 - selectorIndex : -1
+      const controllerIndex = hands.length === 2
+        ? selectorIndex >= 0 ? 1 - selectorIndex : 1
+        : -1
       const landmarks = input.selected && controllerIndex >= 0 ? hands[controllerIndex] : undefined
       const palmY = landmarks ? getPalmCenterY(landmarks) : null
 

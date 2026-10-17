@@ -1,12 +1,7 @@
 import { useEffect, useRef, type MutableRefObject } from 'react'
 import type { HandLandmarkerResult } from '@mediapipe/tasks-vision'
-import { getPinchStrength } from '../gesture/pinchGesture'
+import { getPinchStrength, isPinching, PINCH_RELEASE_THRESHOLD, PINCH_STABILITY_MS, DOUBLE_PINCH_WINDOW_MS } from '../gesture/pinchGesture'
 import { playPinchSelectDing } from '../audio/ding'
-
-export const PINCH_THRESHOLD = 0.48
-export const RELEASE_THRESHOLD = 0.62
-export const PINCH_STABILITY_MS = 45
-export const DOUBLE_PINCH_WINDOW_MS = 600
 
 /** Changes the selected lamp's color once per thumb-index pinch by the selecting hand. */
 export function usePinchColorControl(
@@ -41,7 +36,7 @@ export function usePinchColorControl(
         pinchLatched = false
         firstPinchAt = 0
         waitingForSecondPinch = false
-      } else if (strength <= PINCH_THRESHOLD) {
+      } else if (isPinching(strength, pinchLatched)) {
         if (!pinchingSince) pinchingSince = now
         if (!pinchLatched && now - pinchingSince >= PINCH_STABILITY_MS) {
           if (waitingForSecondPinch && now - firstPinchAt <= DOUBLE_PINCH_WINDOW_MS) {
@@ -58,7 +53,7 @@ export function usePinchColorControl(
         }
       } else {
         pinchingSince = 0
-        if (strength >= RELEASE_THRESHOLD) pinchLatched = false
+        if (strength === null || strength >= PINCH_RELEASE_THRESHOLD) pinchLatched = false
       }
 
       if (waitingForSecondPinch && now - firstPinchAt > DOUBLE_PINCH_WINDOW_MS) {

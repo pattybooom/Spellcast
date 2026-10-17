@@ -13,7 +13,7 @@ export type SpotifyAction = 'play' | 'pause' | 'toggle' | 'next' | 'previous'
 
 function runAppleScript(script: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('/usr/bin/osascript', ['-e', script], (error, stdout, stderr) => {
+    execFile('/usr/bin/osascript', ['-e', script], { timeout: 12000 }, (error, stdout, stderr) => {
       if (error) reject(new Error(stderr.trim() || error.message))
       else resolve(stdout.trim())
     })
@@ -86,4 +86,11 @@ export async function setSpotifyVolume(volume: number): Promise<void> {
   if (!Number.isFinite(volume)) throw new Error('Volume must be a number.')
   const boundedVolume = Math.round(Math.max(0, Math.min(100, volume)))
   await runAppleScript(`tell application "Spotify" to set sound volume to ${boundedVolume}`)
+}
+
+/** Play only a fixed scene track URI; no renderer-supplied AppleScript. */
+export async function playSpotifyTrack(uri: string): Promise<void> {
+  if (!/^spotify:track:[A-Za-z0-9]{22}$/.test(uri)) throw new Error('Invalid Spotify track.')
+  await openSpotify()
+  await runAppleScript(`tell application "Spotify" to play track "${uri}"`)
 }

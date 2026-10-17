@@ -1,7 +1,7 @@
 import { HandLandmarker, type HandLandmarkerResult } from '@mediapipe/tasks-vision'
 import { projectToPreview, type ScreenPoint } from './projection'
 import { getPinchStrength } from '../gesture/pinchGesture'
-import { PINCH_THRESHOLD } from '../control/usePinchColorControl'
+import { isPinching } from '../gesture/pinchGesture'
 
 type Point = ScreenPoint
 
@@ -28,8 +28,11 @@ export function drawHandOverlay(
       : target
   })
 
+  const pinchStates = result.landmarks.map(() => false)
   for (const [handIndex, points] of hands.entries()) {
-    const pinching = (getPinchStrength(result.landmarks[handIndex]) ?? Infinity) <= PINCH_THRESHOLD
+    const pinchStrength = getPinchStrength(result.landmarks[handIndex])
+    pinchStates[handIndex] = isPinching(pinchStrength, pinchStates[handIndex])
+    const pinching = pinchStates[handIndex]
     const accent = pinching ? '#ff4f5e' : '#7cc4ff'
     const accentGlow = pinching ? 'rgba(255, 65, 84, 0.8)' : 'rgba(124, 196, 255, 0.7)'
     context.save()

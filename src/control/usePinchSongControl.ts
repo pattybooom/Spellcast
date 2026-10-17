@@ -1,8 +1,6 @@
 import { useEffect, useRef, type MutableRefObject } from 'react'
 import type { HandLandmarkerResult } from '@mediapipe/tasks-vision'
-import { getPinchStrength } from '../gesture/pinchGesture'
-
-import { PINCH_THRESHOLD, RELEASE_THRESHOLD, PINCH_STABILITY_MS, DOUBLE_PINCH_WINDOW_MS } from './usePinchColorControl'
+import { getPinchStrength, isPinching, PINCH_RELEASE_THRESHOLD, PINCH_STABILITY_MS, DOUBLE_PINCH_WINDOW_MS } from '../gesture/pinchGesture'
 
 /** Advances Spotify once per left-hand thumb-index pinch while the speaker is selected. */
 export function usePinchSongControl(
@@ -31,7 +29,7 @@ export function usePinchSongControl(
         latched = false
         firstPinchAt = 0
         waitingForSecondPinch = false
-      } else if (strength <= PINCH_THRESHOLD) {
+      } else if (isPinching(strength, latched)) {
         if (!pinchingSince) pinchingSince = now
         if (!latched && now - pinchingSince >= PINCH_STABILITY_MS) {
           if (waitingForSecondPinch && now - firstPinchAt <= DOUBLE_PINCH_WINDOW_MS) {
@@ -46,7 +44,7 @@ export function usePinchSongControl(
         }
       } else {
         pinchingSince = 0
-        if (strength >= RELEASE_THRESHOLD) latched = false
+        if (strength === null || strength >= PINCH_RELEASE_THRESHOLD) latched = false
       }
       if (waitingForSecondPinch && now - firstPinchAt > DOUBLE_PINCH_WINDOW_MS) {
         waitingForSecondPinch = false

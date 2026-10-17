@@ -7,7 +7,7 @@ Spellcast is a hackathon project exploring spatial interaction with physical env
 - Point at a physical Zigbee lamp to select it.
 - Use hand gestures to switch the lamp on or off and adjust its brightness.
 - Point at a speaker to control music playback and volume.
-- Swipe between Calm, Party, and Study scenes that coordinate lighting, music, and the interface.
+- Switch between Calm, Study, and Party scenes with on-screen buttons or two-hand gestures.
 - Present the experience through a polished, futuristic webcam interface.
 
 ## Planned stack
@@ -52,3 +52,17 @@ The USB serial path can change if the coordinator is reconnected or macOS assign
 ## Working style
 
 Spellcast is being built interactively, one step at a time. Commands and setup changes should be explained, and the hardware milestone should remain grounded in observed device behavior.
+
+## Scenes
+
+Use the scene buttons in the desktop app to coordinate lighting and Spotify:
+
+- **Calm:** orange at 35%, playing [entitled by kwes e](https://open.spotify.com/track/7jn7SOuYxnrAoz3QSmhIgQ).
+- **Study:** white at 100% (4000 K), playing [Clair de lune by Debussy, performed by Jean-Yves Thibaudet](https://open.spotify.com/track/4nDWmVFlg15oNpOHFyQdGT).
+- **Party:** full brightness with a continuously cycling pink, violet, blue, cyan, green and gold palette, playing [Drop It Like It's Hot by Snoop Dogg and Pharrell Williams](https://open.spotify.com/track/1WqypbNyfSErs5I7BmfIRe).
+
+Touch both index fingertips together twice while both hands are in view to advance once: no scene → Calm → Study → Party → no scene. Separate the fingers between double taps. A short tone confirms each change, with a quieter tone when the gesture rearms. Party keeps the lamp on while its colors cycle; choosing another scene or No scene ends the cycle. No Escape shortcut is needed. Lamp and speaker gestures pause while a scene is active; the onscreen controls remain available.
+
+Spotify must be installed and signed in, with macOS Automation permission for Spellcast. Music failures are shown separately from lighting. The scene controller cancels its color cycle on MQTT disconnect, window closure, and app quit. A disconnected bulb cannot be guaranteed to receive the final steady-light command. Scene publishes are unretained and use QoS 0 to avoid replaying old effects after reconnecting. Color transition speed depends on the bulb and Zigbee network. These scene commands still need verification on the physical bulb and Spotify account.
+
+Run `npm run test:scenes` for the scene lifecycle regression checks; `npm run typecheck` and `npm run build` check the desktop application.

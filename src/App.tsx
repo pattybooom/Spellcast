@@ -7,9 +7,12 @@ import { useTwoHandLampControl } from './control/useTwoHandLampControl'
 import { usePinchColorControl } from './control/usePinchColorControl'
 import { usePinchSongControl } from './control/usePinchSongControl'
 import { useSpotifyHandControl } from './control/useSpotifyHandControl'
+import { useTwoHandSceneControl } from './control/useTwoHandSceneControl'
 import { playDing, playHandDetected, playUnselectDing, primeDingAudio } from './audio/ding'
 import { rayToPreviewEdge, type NormalizedBox } from './targeting/rayTargeting'
 import type { ScreenPoint } from './tracking/projection'
+
+import { SCENES, type SceneId, type SceneState } from './scenes/presets'
 
 type CameraState = 'idle' | 'starting' | 'live' | 'error'
 type Nav = 'studio' | 'devices' | 'tracking'
@@ -86,6 +89,8 @@ export default function App() {
   const wasHandDetectedRef = useRef(false)
   const brightnessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const spotifyVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [scene, setScene] = useState<SceneState>({ active: null, applying: false, cyclingColors: false })
+  const [sceneError, setSceneError] = useState('')
   const [camera, setCamera] = useState<CameraState>('idle')
   const [error, setError] = useState('')
   const [nav, setNav] = useState<Nav>('studio')
@@ -111,16 +116,16 @@ export default function App() {
   const speakerTargeted = targeting.targeted && targeting.targetDevice === 'speaker'
   usePinchColorControl(
     tracking.resultsRef,
-    camera === 'live' && tracking.status === 'ready',
+    camera === 'live' && tracking.status === 'ready' && !scene.active && !scene.applying,
     lampSelected,
     lampHue,
     changeLampHue
   )
-  usePinchSongControl(tracking.resultsRef, camera === 'live' && tracking.status === 'ready', speakerTargeted, () => { void controlSpotify('next') })
+  usePinchSongControl(tracking.resultsRef, camera === 'live' && tracking.status === 'ready' && !scene.active && !scene.applying, speakerTargeted, () => { void controlSpotify('next') })
   const spotifyHandStatus = useSpotifyHandControl(
     tracking.resultsRef,
-    camera === 'live' && tracking.status === 'ready',
-    speakerTargeted,
+    camera === 'live' && tracking.status === 'ready' && (!scene.applying || Boolean(scene.active)),
+    speakerTargeted || Boolean(scene.active),
     targeting.selectorHandIndex,
     targeting.selectorHandedness,
     spotify.volume,
@@ -129,9 +134,15 @@ export default function App() {
     () => { void controlSpotify('pause') },
     () => { void controlSpotify('play') }
   )
-  const controlStatus = useTwoHandLampControl(
+  const sceneGestureStatus = useTwoHandSceneControl(
     tracking.resultsRef,
     camera === 'live' && tracking.status === 'ready',
+    scene,
+    next => { void applyScene(next) }
+  )
+  const controlStatus = useTwoHandLampControl(
+    tracking.resultsRef,
+    camera === 'live' && tracking.status === 'ready' && !scene.active && !scene.applying,
     lampSelected,
     targeting.selectorHandIndex,
     targeting.selectorHandedness,
@@ -198,6 +209,25 @@ export default function App() {
       if (spotifyVolumeTimerRef.current) clearTimeout(spotifyVolumeTimerRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    const unsubscribe = window.spellcast.onSceneState(setScene)
+    void window.spellcast.getSceneState().then(setScene).catch(() => setSceneError('Could not read scenes. Restart Spellcast.'))
+    return unsubscribe
+  }, [])
+
+  async function applyScene(id: SceneId | null) {
+    setSceneError('')
+    if (brightnessTimerRef.current) clearTimeout(brightnessTimerRef.current)
+    if (spotifyVolumeTimerRef.current) clearTimeout(spotifyVolumeTimerRef.current)
+    try {
+      const result = await window.spellcast.applyScene(id)
+      if (!result.ok) setSceneError(result.error ?? 'Could not apply scene. Try again.')
+      if (result.ok && id === 'calm') setLampHue(24)
+      void window.spellcast.getSpotifyState().then(setSpotify)
+    } catch { setSceneError('Could not apply scene. Restart Spellcast and retry.') }
+  }
+
 
   function changeBrightness(value: number) {
     setBrightness(value)
@@ -431,11 +461,6 @@ export default function App() {
       <button onClick={cancelCalibration}>Cancel</button>
     </div>}
 
-    {live && <div className="reticle" aria-hidden="true">
-      <span className="ring"/><span className="ring r2"/><span className="tick t1"/><span className="tick t2"/><span className="tick t3"/><span className="tick t4"/><span className="dot"/>
-      <div className="gesture-chip glass"><Icon name="hand" size={14}/>{tracking.status === 'loading' ? 'Loading hand model…' : tracking.status === 'error' ? 'Tracking unavailable' : tracking.handCount > 0 ? `${tracking.handCount} ${tracking.handCount === 1 ? 'hand' : 'hands'} detected` : 'Waiting for a hand'}</div>
-    </div>}
-
     <header className="topbar">
       <a className="brand glass" href="#studio" aria-label="Spellcast home"><Icon name="aperture" size={20}/><span>Spellcast</span></a>
       <div className="top-actions glass">
@@ -457,6 +482,13 @@ export default function App() {
     <section className="hero" id="studio">
       <h1>{greeting()}</h1>
       <p>Your space, within reach.</p>
+    </section>
+
+    <section className={`scene-strip glass-strong ${scene.active ? `is-${scene.active}` : 'is-none'}`} aria-label="Current scene" aria-live="polite">
+      <div className="scene-heading"><span>{scene.applying ? 'CHANGING SCENE' : 'CURRENT SCENE'}</span><strong>{scene.applying ? 'Applying…' : scene.active ? SCENES[scene.active].label : 'No scene'}</strong></div>
+      {scene.active && <div className="scene-current-detail"><span>{SCENES[scene.active].description}</span><small>{SCENES[scene.active].music}</small></div>}
+      {live && <p className="scene-gesture-hint" role="status">{scene.applying ? 'Applying scene…' : sceneGestureStatus === 'show-two-hands' ? 'Show both hands in the camera view' : sceneGestureStatus === 'first-touch-detected' ? 'First touch · Tap index fingers together once more' : sceneGestureStatus === 'second-touch-detected' ? 'Second touch detected' : sceneGestureStatus === 'release-fingers' ? 'Separate index fingers to switch again' : scene.active === 'party' ? 'Touch both index fingers together twice to end Party' : 'Touch both index fingers together twice to change scene'}</p>}
+      {(scene.error || sceneError) && <p className="scene-error" role="alert">{sceneError || scene.error}</p>}
     </section>
 
     {!live && <div className="invite glass-strong">
@@ -485,27 +517,17 @@ export default function App() {
       <div className="hue-readout" aria-label={`Lamp hue ${lampHue} degrees`}>
         <i style={{ backgroundColor: `hsl(${lampHue} 85% 62%)`, boxShadow: `0 0 12px hsl(${lampHue} 85% 62% / 55%)` }}/>
         <span>COLOR</span>
-        <strong>{lampHue}°</strong>
+        <strong>{scene.active === 'study' || scene.active === 'party' ? 'WHITE' : `${lampHue}°`}</strong>
         <div className="hue-spectrum" style={{ ['--hue-position' as string]: `${lampHue / 3.6}%` }}><b/></div>
       </div>
       <div className="control-level" style={{ ['--v' as string]: `${lampOn ? brightness : 0}%` }}>
         <span className="level-num">{lampOn ? brightness : 0}</span>
-        <input type="range" min={1} max={100} value={brightness} disabled={!lampOn || lampConnection !== 'connected'} aria-label="Brightness" onChange={e => changeBrightness(Number(e.target.value))}/>
+        <input type="range" min={1} max={100} value={brightness} disabled={scene.applying || !lampOn || lampConnection !== 'connected'} aria-label="Brightness" onChange={e => changeBrightness(Number(e.target.value))}/>
       </div>
-      <button className={`switch ${lampOn ? 'on' : ''}`} role="switch" aria-checked={lampOn} disabled={lampConnection !== 'connected'} onClick={() => setPower(!lampOn)}><i/><span>{lampOn ? 'On' : 'Off'}</span></button>
+      <button className={`switch ${lampOn ? 'on' : ''}`} role="switch" aria-checked={lampOn} disabled={scene.applying || lampConnection !== 'connected'} onClick={() => setPower(!lampOn)}><i/><span>{lampOn ? 'On' : 'Off'}</span></button>
     </aside>}
 
     <section className="tray">
-      <article className="panel glass">
-        <div className="panel-head"><div><h2>Hand tracking</h2><p>Landmarks and gesture input</p></div><span className={`tag tracking-${tracking.status}`} title={tracking.error || undefined}><i/>{tracking.status === 'loading' ? 'Loading' : tracking.status === 'ready' ? 'Ready' : tracking.status === 'error' ? 'Unavailable' : 'Not active'}</span></div>
-        <div className="panel-body">
-          <div className="hand-orbit"><Icon name="hand" size={22}/><span className="orbit a"/><span className="orbit b"/></div>
-          <div className="grow"><strong>{tracking.status === 'loading' ? 'Loading local model' : tracking.status === 'error' ? 'Hand tracking unavailable' : tracking.handCount > 0 ? `${tracking.handCount} ${tracking.handCount === 1 ? 'hand' : 'hands'} detected` : live ? 'Waiting for a hand' : 'Camera is off'}</strong><p>{tracking.status === 'error' ? tracking.error : tracking.status === 'loading' ? 'Preparing MediaPipe' : tracking.handCount > 0 ? 'Landmarks detected' : live ? 'Raise a hand into view' : 'Enable the camera to begin'}</p></div>
-          <div className="count"><b>{tracking.handCount > 0 ? tracking.handCount * 21 : '—'}</b><span>landmarks</span></div>
-        </div>
-        <div className="panel-foot"><span>MediaPipe Hand Landmarker</span><span>{tracking.status === 'loading' ? 'Loading local model' : tracking.status === 'ready' ? 'Local model ready' : tracking.status === 'error' ? 'Model unavailable' : 'Camera off'}</span></div>
-      </article>
-
       <article className="panel glass">
         <div className="panel-head"><div><h2>In your space</h2><p>Connected devices</p></div><button className="calibrate-button" onClick={() => beginCalibration('lamp')} disabled={!live}>{lampBox ? 'Recalibrate lamp' : 'Calibrate lamp'}</button></div>
         <div className={`device-row ${lampSelected ? 'selected' : ''} ${lampSelected ? 'targeted' : ''}`}>
@@ -524,10 +546,10 @@ export default function App() {
           {speakerTargeted && <span className="targeted-badge">SPEAKER TARGETED</span>}
           <button className="calibrate-button speaker-calibrate" onClick={() => beginCalibration('speaker')} disabled={!live}>{speakerBox ? 'Recalibrate' : 'Calibrate'}</button>
         </div>
-        {(speakerSelected || speakerTargeted) && spotify.connected && <div className="spotify-controls">
+        {(speakerSelected || speakerTargeted || scene.active) && spotify.connected && <div className="spotify-controls">
           {spotify.error && <span className="spotify-error" title={spotify.error}>Allow Spellcast to control Spotify in macOS Privacy &amp; Security.</span>}
           {!spotify.error && <span className="spotify-track">{spotify.track ? `${spotify.track} — ${spotify.artist ?? 'Unknown artist'}` : 'Choose something to play in Spotify'}</span>}
-          {speakerTargeted && <span className="spotify-gesture-hint">LEFT PINCH · NEXT TRACK <i/> HAND 2 · {spotifyHandStatus === 'paused' ? 'PAUSED AT ZERO' : spotifyHandStatus === 'raise' ? 'VOLUME UP' : spotifyHandStatus === 'lower' ? 'VOLUME DOWN' : 'RAISE / LOWER VOLUME'}</span>}
+          {(speakerTargeted || scene.active) && <span className="spotify-gesture-hint">{scene.active ? 'HAND 2 · ' : 'LEFT PINCH · NEXT TRACK · HAND 2 · '}{spotifyHandStatus === 'paused' ? 'PAUSED AT ZERO' : spotifyHandStatus === 'raise' ? 'VOLUME UP' : spotifyHandStatus === 'lower' ? 'VOLUME DOWN' : 'RAISE / LOWER VOLUME'}</span>}
           <div className="spotify-actions">
             <button type="button" aria-label="Previous track" title="Previous track" onClick={() => void controlSpotify('previous')}><Icon name="previous" size={15}/></button>
             <button type="button" className="spotify-play" aria-label={spotify.playing ? 'Pause Spotify' : 'Play Spotify'} title={spotify.playing ? 'Pause' : 'Play'} onClick={() => void controlSpotify(spotify.playing ? 'pause' : 'play')}><Icon name={spotify.playing ? 'pause' : 'play'} size={14}/></button>

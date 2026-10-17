@@ -134,3 +134,28 @@ export function playLevelTone(level: number): void {
     // Sound is a non-critical enhancement.
   }
 }
+
+
+/** A soft ascending cue when the index fingers separate and rearm scene switching. */
+export function playSceneArmed(): void {
+  playCue([523.25, 659.25], 0.14, 0.07)
+}
+
+/** A clear three-note confirmation when a double index-finger tap advances the scene. */
+export function playSceneAdvance(): void {
+  playCue([659.25, 880, 1174.66], 0.2, 0.075)
+}
+
+function playCue(frequencies: readonly number[], duration: number, volume: number): void {
+  try {
+    audioContext ??= new AudioContext()
+    const context = audioContext
+    const play = () => {
+      if (context.state === 'running') playWithContext(context, frequencies, duration, volume)
+    }
+    if (context.state === 'running') play()
+    else void context.resume().then(play).catch(() => {})
+  } catch {
+    // Sound is a non-critical enhancement.
+  }
+}

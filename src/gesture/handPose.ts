@@ -2,6 +2,8 @@ import type { NormalizedLandmark } from '@mediapipe/tasks-vision'
 
 export type HandControlPose = 'fist' | 'open'
 
+export type IndexContactPose = 'touching' | 'apart'
+
 function distance3D(a: NormalizedLandmark, b: NormalizedLandmark): number {
   return Math.hypot(a.x - b.x, a.y - b.y, (a.z ?? 0) - (b.z ?? 0))
 }
@@ -28,6 +30,20 @@ export function detectHandControlPose(landmarks: NormalizedLandmark[]): HandCont
   ] as const
   if (fingers.every(([mcp, pip, tip]) => fingerExtended(landmarks, mcp, pip, tip))) return 'open'
   if (fingers.every(([mcp, pip, tip]) => fingerCurled(landmarks, mcp, pip, tip))) return 'fist'
+  return null
+}
+
+/** Detects deliberate contact between the two index fingertips, scaled to palm width. */
+export function detectIndexFingerContact(
+  first: NormalizedLandmark[],
+  second: NormalizedLandmark[]
+): IndexContactPose | null {
+  if (first.length < 21 || second.length < 21) return null
+  const palmWidth = (distance3D(first[5], first[17]) + distance3D(second[5], second[17])) / 2
+  if (palmWidth < 0.001) return null
+  const fingertipDistance = Math.hypot(first[8].x - second[8].x, first[8].y - second[8].y) / palmWidth
+  if (fingertipDistance <= 0.28) return 'touching'
+  if (fingertipDistance >= 0.48) return 'apart'
   return null
 }
 

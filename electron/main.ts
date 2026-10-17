@@ -1,7 +1,10 @@
 import { app, BrowserWindow, ipcMain, session } from 'electron'
 import { connect, type MqttClient } from 'mqtt'
 import { join } from 'node:path'
-import { controlSpotify, getSpotifyState, openSpotify, setSpotifyVolume, type SpotifyAction } from './spotify'
+import { controlSpotify, getSpotifyState, openSpotify, playSpotifyTrack, setSpotifyVolume, type SpotifyAction } from './spotify'
+
+import { SceneController } from './scenes'
+import { SCENES, type SceneId } from '../src/scenes/presets'
 
 // This is a desktop app, so interaction feedback should not require a browser-style media gesture.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
@@ -11,6 +14,37 @@ type LampState = { connection: 'connecting' | 'connected' | 'offline'; state: 'O
 const lampTopic = process.env.SPELLCAST_LAMP_TOPIC ?? 'zigbee2mqtt/0x84fd27fffeb35eb4'
 let mqttClient: MqttClient | null = null
 let lampState: LampState = { connection: 'connecting', state: null, brightness: null }
+
+const scenes = new SceneController({
+  publish: publishSceneCommand,
+  play: playSpotifyTrack,
+  pause: () => controlSpotify('pause'),
+  changed: state => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send('scene:state', state)
+    }
+  }
+})
+
+function publishSceneCommand(command: Record<string, unknown>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (!mqttClient?.connected) { reject(new Error('MQTT is offline. Check Mosquitto, then retry the scene.')); return }
+    const timer = setTimeout(() => reject(new Error('Lamp command timed out. Check Zigbee2MQTT.')), 3000)
+    // QoS 0 avoids replaying stale flash commands after a reconnect.
+    mqttClient.publish(`${lampTopic}/set`, JSON.stringify(command), { qos: 0 }, error => {
+      clearTimeout(timer)
+      if (error) reject(error)
+      else resolve()
+    })
+  })
+}
+
+ipcMain.handle('scene:get-state', () => scenes.state)
+ipcMain.handle('scene:apply', async (_event, id: SceneId | null) => {
+  if (id !== null && (typeof id !== 'string' || !Object.prototype.hasOwnProperty.call(SCENES, id))) return { ok: false, error: 'Unknown scene.' }
+  await scenes.apply(id)
+  return { ok: !scenes.state.error, error: scenes.state.error }
+})
 
 function publishLampState() {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -22,6 +56,7 @@ function connectMqtt() {
   mqttClient = connect(process.env.SPELLCAST_MQTT_URL ?? 'mqtt://localhost:1883', {
     clientId: `spellcast_${process.pid}`,
     reconnectPeriod: 2000,
+    queueQoSZero: false,
     connectTimeout: 5000
   })
   mqttClient.on('connect', () => {
@@ -48,6 +83,7 @@ function connectMqtt() {
     }
   })
   mqttClient.on('offline', () => {
+    void scenes.stop(false)
     lampState = { ...lampState, connection: 'offline' }
     publishLampState()
   })
@@ -76,16 +112,19 @@ function hueToRgb(hue: number) {
 }
 
 ipcMain.handle('lamp:get-state', () => lampState)
-ipcMain.handle('lamp:set-power', (_event, state: 'ON' | 'OFF' | 'TOGGLE') => {
+ipcMain.handle('lamp:set-power', async (_event, state: 'ON' | 'OFF' | 'TOGGLE') => {
   if (!['ON', 'OFF', 'TOGGLE'].includes(state)) return { ok: false, error: 'Invalid power state.' }
+  await scenes.stop(false)
   return publishLampCommand({ state })
 })
-ipcMain.handle('lamp:set-brightness', (_event, brightness: number) => {
+ipcMain.handle('lamp:set-brightness', async (_event, brightness: number) => {
   if (!Number.isFinite(brightness)) return { ok: false, error: 'Invalid brightness.' }
+  await scenes.stop(false)
   return publishLampCommand({ brightness: Math.round(Math.max(1, Math.min(254, brightness))) })
 })
-ipcMain.handle('lamp:set-hue', (_event, hue: number) => {
+ipcMain.handle('lamp:set-hue', async (_event, hue: number) => {
   if (!Number.isFinite(hue) || hue < 0 || hue >= 360) return { ok: false, error: 'Invalid hue.' }
+  await scenes.stop(false)
   return publishLampCommand({ color: hueToRgb(Math.round(hue)) })
 })
 
@@ -147,5 +186,11 @@ app.whenReady().then(() => {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
 
-app.on('before-quit', () => mqttClient?.end())
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
+let quitting = false
+app.on('before-quit', event => {
+  if (quitting) return
+  event.preventDefault()
+  quitting = true
+  void scenes.stop().finally(() => { mqttClient?.end(); app.quit() })
+})
+app.on('window-all-closed', () => { void scenes.stop(); if (process.platform !== 'darwin') app.quit() })

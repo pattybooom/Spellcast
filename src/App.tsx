@@ -88,7 +88,16 @@ export default function App() {
   useHandOverlay(videoRef, overlayRef, tracking.resultsRef, camera === 'live' && tracking.status !== 'error')
   const targeting = useLampTargeting(videoRef, targetOverlayRef, tracking.resultsRef, camera === 'live' && tracking.status === 'ready', lampBox)
   const lampSelected = targeting.targeted
-  const controlPose = useTwoHandLampControl(tracking.resultsRef, camera === 'live' && tracking.status === 'ready', lampSelected, targeting.selectorHandIndex, targeting.selectorHandedness)
+  const controlStatus = useTwoHandLampControl(
+    tracking.resultsRef,
+    camera === 'live' && tracking.status === 'ready',
+    lampSelected,
+    targeting.selectorHandIndex,
+    targeting.selectorHandedness,
+    brightness,
+    setHandBrightness,
+    setPower
+  )
 
   useEffect(() => {
     if (targeting.targetEntry <= lastDingTargetRef.current) return
@@ -141,6 +150,13 @@ export default function App() {
     setLampOn(on)
     void window.spellcast.setLampPower(on ? 'ON' : 'OFF').then(result => {
       if (!result.ok) setLampError(result.error ?? 'Could not change lamp power.')
+    })
+  }
+
+  function setHandBrightness(value: number) {
+    setBrightness(value)
+    void window.spellcast.setLampBrightness(Math.round(value / 100 * 254)).then(result => {
+      if (!result.ok) setLampError(result.error ?? 'Could not set brightness.')
     })
   }
 
@@ -348,7 +364,7 @@ export default function App() {
     {lampSelected && <aside className="control glass-strong" aria-label="Living room lamp controls">
       <div className="control-head">
         <div><strong>Living room lamp</strong><span>{lampOn ? `${brightness}% brightness` : 'Off'}</span></div>
-        <span className="hand-control-status">HAND 2 · {controlPose === null ? 'WAITING' : controlPose === 0 ? 'FIST · OFF' : `${controlPose} FINGER${controlPose === 1 ? '' : 'S'} · ${controlPose * 20}%`}</span>
+        <span className="hand-control-status">HAND 2 · {controlStatus === null ? 'MOVE UP / DOWN' : controlStatus === 'fist' ? 'FIST · OFF' : controlStatus === 'open' ? 'OPEN · ON' : controlStatus === 'raise' ? 'BRIGHTNESS +20%' : 'BRIGHTNESS −20%'}</span>
       </div>
       <div className="control-level" style={{ ['--v' as string]: `${lampOn ? brightness : 0}%` }}>
         <span className="level-num">{lampOn ? brightness : 0}</span>

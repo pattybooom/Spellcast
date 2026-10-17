@@ -18,9 +18,9 @@ export function detectPointingGesture(landmarks: NormalizedLandmark[]): Pointing
   const wristToIndexPip = distance3D(landmarks[0], landmarks[6])
   const baseToTip = distance3D(landmarks[5], landmarks[8])
   const baseToPip = distance3D(landmarks[5], landmarks[6])
-  const indexExtended = wristToIndexTip > wristToIndexPip * 1.14
-    && baseToTip > baseToPip * 1.425
-    && baseToTip > 0.0675
+  const indexExtended = wristToIndexTip > wristToIndexPip * 1.08
+    && baseToTip > baseToPip * 1.3
+    && baseToTip > 0.055
 
   if (!indexExtended) return null
 

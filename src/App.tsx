@@ -1,20 +1,28 @@
-import { useEffect, useRef, useState } from 'react'
-import type { LampState } from '../electron/preload'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { LampState, SpotifyState } from '../electron/preload'
 import { useHandTracking } from './tracking/useHandTracking'
 import { useHandOverlay } from './tracking/useHandOverlay'
 import { useLampTargeting } from './targeting/useLampTargeting'
 import { useTwoHandLampControl } from './control/useTwoHandLampControl'
-import { playDing, playUnselectDing, primeDingAudio } from './audio/ding'
+import { usePinchColorControl } from './control/usePinchColorControl'
+import { usePinchSongControl } from './control/usePinchSongControl'
+import { useSpotifyHandControl } from './control/useSpotifyHandControl'
+import { playDing, playHandDetected, playUnselectDing, primeDingAudio } from './audio/ding'
 import { rayToPreviewEdge, type NormalizedBox } from './targeting/rayTargeting'
 import type { ScreenPoint } from './tracking/projection'
 
 type CameraState = 'idle' | 'starting' | 'live' | 'error'
 type Nav = 'studio' | 'devices' | 'tracking'
 const LAMP_BOX_STORAGE_KEY = 'spellcast.lamp-calibration.v1'
+const SPEAKER_BOX_STORAGE_KEY = 'spellcast.speaker-calibration.v1'
 
 function loadLampBox(): NormalizedBox | null {
+  return loadBox(LAMP_BOX_STORAGE_KEY)
+}
+
+function loadBox(storageKey: string): NormalizedBox | null {
   try {
-    const value = localStorage.getItem(LAMP_BOX_STORAGE_KEY)
+    const value = localStorage.getItem(storageKey)
     if (!value) return null
     const box = JSON.parse(value) as NormalizedBox
     if ([box.x, box.y, box.width, box.height].every(Number.isFinite)
@@ -41,6 +49,10 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
     camera: <><path d="M14 5h-4l-1.5 2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3.5L14 5Z"/><circle cx="12" cy="13" r="3.2"/></>,
     hand: <><path d="M8 12V5.5a1.5 1.5 0 0 1 3 0V11 4a1.5 1.5 0 0 1 3 0v7-5a1.5 1.5 0 0 1 3 0v6-3a1.5 1.5 0 0 1 3 0v6.5a7 7 0 0 1-7 7h-1a7 7 0 0 1-6.1-3.6L3 14.2a1.8 1.8 0 0 1 3-2.1L8 15"/></>,
     bulb: <><path d="M9 18h6m-5 3h4m-2-19a7 7 0 0 0-4 12.7c.7.5 1 1.2 1 2.3h6c0-1.1.3-1.8 1-2.3A7 7 0 0 0 12 2Z"/></>,
+    speaker: <><path d="M4 10v4h4l5 4V6l-5 4H4Z"/><path d="M17 9a5 5 0 0 1 0 6m2-9a9 9 0 0 1 0 12"/></>,
+    previous: <><path d="M6 5v14M19 6l-9 6 9 6V6Z"/></>,
+    next: <><path d="M18 5v14M5 6l9 6-9 6V6Z"/></>,
+    pause: <><path d="M8 5h3v14H8zm5 0h3v14h-3z" fill="currentColor" stroke="none"/></>,
     settings: <><circle cx="12" cy="12" r="3"/><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.6a8 8 0 0 1-1.5.9l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.6-.9l-1.6.6-1.4-2.4 1.4-1.1a7 7 0 0 1 0-1.8l-1.4-1.1 1.4-2.4 1.7.6a8 8 0 0 1 1.5-.9l.3-1.8h2.8l.3 1.8a8 8 0 0 1 1.6.9l1.6-.6 1.4 2.4-1.4 1.1a7 7 0 0 1-.1 1.7Z" transform="translate(-2 -2) scale(1.16)"/></>,
     play: <path d="m9 6 10 6-10 6V6Z" fill="currentColor" stroke="none"/>,
     stop: <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>,
@@ -71,23 +83,52 @@ export default function App() {
   const mountedRef = useRef(false)
   const lastDingTargetRef = useRef(0)
   const wasLampSelectedRef = useRef(false)
+  const wasHandDetectedRef = useRef(false)
   const brightnessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const spotifyVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [camera, setCamera] = useState<CameraState>('idle')
   const [error, setError] = useState('')
   const [nav, setNav] = useState<Nav>('studio')
   const [lampOn, setLampOn] = useState(true)
   const [brightness, setBrightness] = useState(72)
+  const [lampHue, setLampHue] = useState(0)
   const [lampConnection, setLampConnection] = useState<LampState['connection']>('connecting')
   const [lampError, setLampError] = useState('')
+  const [spotify, setSpotify] = useState<SpotifyState>({ connected: false, playing: false, track: null, artist: null, volume: 50 })
+  const [speakerSelected, setSpeakerSelected] = useState(false)
   const [lampBox, setLampBox] = useState<NormalizedBox | null>(loadLampBox)
+  const [speakerBox, setSpeakerBox] = useState<NormalizedBox | null>(() => loadBox(SPEAKER_BOX_STORAGE_KEY))
   const [calibrating, setCalibrating] = useState(false)
+  const [calibratingDevice, setCalibratingDevice] = useState<'lamp' | 'speaker'>('lamp')
   const [calibrationDraft, setCalibrationDraft] = useState<NormalizedBox | null>(null)
   const calibrationStartRef = useRef<ScreenPoint | null>(null)
+  const targetBoxes = useMemo(() => ({ lamp: lampBox, speaker: speakerBox }), [lampBox, speakerBox])
 
   const tracking = useHandTracking(videoRef, camera === 'live')
   useHandOverlay(videoRef, overlayRef, tracking.resultsRef, camera === 'live' && tracking.status !== 'error')
-  const targeting = useLampTargeting(videoRef, targetOverlayRef, tracking.resultsRef, camera === 'live' && tracking.status === 'ready', lampBox)
-  const lampSelected = targeting.targeted
+  const targeting = useLampTargeting(videoRef, targetOverlayRef, tracking.resultsRef, camera === 'live' && tracking.status === 'ready', targetBoxes)
+  const lampSelected = targeting.targeted && targeting.targetDevice === 'lamp'
+  const speakerTargeted = targeting.targeted && targeting.targetDevice === 'speaker'
+  usePinchColorControl(
+    tracking.resultsRef,
+    camera === 'live' && tracking.status === 'ready',
+    lampSelected,
+    lampHue,
+    changeLampHue
+  )
+  usePinchSongControl(tracking.resultsRef, camera === 'live' && tracking.status === 'ready', speakerTargeted, () => { void controlSpotify('next') })
+  const spotifyHandStatus = useSpotifyHandControl(
+    tracking.resultsRef,
+    camera === 'live' && tracking.status === 'ready',
+    speakerTargeted,
+    targeting.selectorHandIndex,
+    targeting.selectorHandedness,
+    spotify.volume,
+    spotify.playing,
+    changeSpotifyVolume,
+    () => { void controlSpotify('pause') },
+    () => { void controlSpotify('play') }
+  )
   const controlStatus = useTwoHandLampControl(
     tracking.resultsRef,
     camera === 'live' && tracking.status === 'ready',
@@ -100,15 +141,21 @@ export default function App() {
   )
 
   useEffect(() => {
+    const handDetected = tracking.handCount > 0
+    if (handDetected && !wasHandDetectedRef.current) playHandDetected()
+    wasHandDetectedRef.current = handDetected
+  }, [tracking.handCount])
+
+  useEffect(() => {
     if (targeting.targetEntry <= lastDingTargetRef.current) return
     lastDingTargetRef.current = targeting.targetEntry
     playDing()
   }, [targeting.targetEntry])
 
   useEffect(() => {
-    if (wasLampSelectedRef.current && !lampSelected) playUnselectDing()
-    wasLampSelectedRef.current = lampSelected
-  }, [lampSelected])
+    if (wasLampSelectedRef.current && !targeting.targeted) playUnselectDing()
+    wasLampSelectedRef.current = targeting.targeted
+  }, [targeting.targeted])
 
   useEffect(() => {
     const applyLampState = (state: LampState) => {
@@ -136,6 +183,22 @@ export default function App() {
     }
   }, [])
 
+  useEffect(() => {
+    let active = true
+    const refreshSpotify = () => {
+      void window.spellcast.getSpotifyState().then(state => {
+        if (active) setSpotify(state)
+      })
+    }
+    refreshSpotify()
+    const timer = setInterval(refreshSpotify, 1500)
+    return () => {
+      active = false
+      clearInterval(timer)
+      if (spotifyVolumeTimerRef.current) clearTimeout(spotifyVolumeTimerRef.current)
+    }
+  }, [])
+
   function changeBrightness(value: number) {
     setBrightness(value)
     if (brightnessTimerRef.current) clearTimeout(brightnessTimerRef.current)
@@ -158,6 +221,37 @@ export default function App() {
     void window.spellcast.setLampBrightness(Math.round(value / 100 * 254)).then(result => {
       if (!result.ok) setLampError(result.error ?? 'Could not set brightness.')
     })
+  }
+
+  function changeLampHue(value: number) {
+    setLampHue(value)
+    setPower(true)
+    void window.spellcast.setLampHue(value).then(result => {
+      if (!result.ok) setLampError(result.error ?? 'Could not change lamp colour.')
+    })
+  }
+
+  async function selectSpeaker() {
+    setSpeakerSelected(true)
+    if (spotify.connected) return
+    const result = await window.spellcast.openSpotify()
+    if (!result.ok) setSpotify(current => ({ ...current, error: result.error ?? 'Could not open Spotify.' }))
+  }
+
+  async function controlSpotify(action: 'play' | 'pause' | 'toggle' | 'next' | 'previous') {
+    const result = await window.spellcast.controlSpotify(action)
+    if (!result.ok) setSpotify(current => ({ ...current, error: result.error ?? 'Spotify control failed.' }))
+    else void window.spellcast.getSpotifyState().then(setSpotify)
+  }
+
+  function changeSpotifyVolume(value: number) {
+    setSpotify(current => ({ ...current, volume: value }))
+    if (spotifyVolumeTimerRef.current) clearTimeout(spotifyVolumeTimerRef.current)
+    spotifyVolumeTimerRef.current = setTimeout(() => {
+      void window.spellcast.setSpotifyVolume(value).then(result => {
+        if (!result.ok) setSpotify(current => ({ ...current, error: result.error ?? 'Could not set Spotify volume.' }))
+      })
+    }, 90)
   }
 
   async function startCamera() {
@@ -216,7 +310,13 @@ export default function App() {
     }
   }
 
-  function beginCalibration(event: React.PointerEvent<SVGSVGElement>) {
+  function beginCalibration(device: 'lamp' | 'speaker') {
+    setCalibratingDevice(device)
+    setCalibrationDraft(null)
+    setCalibrating(true)
+  }
+
+  function beginCalibrationDrag(event: React.PointerEvent<SVGSVGElement>) {
     if (!calibrating) return
     const point = calibrationPoint(event)
     calibrationStartRef.current = point
@@ -241,8 +341,13 @@ export default function App() {
       setCalibrationDraft(null)
       return
     }
-    setLampBox(box)
-    try { localStorage.setItem(LAMP_BOX_STORAGE_KEY, JSON.stringify(box)) } catch { /* Keep this session's calibration if storage is unavailable. */ }
+    if (calibratingDevice === 'lamp') {
+      setLampBox(box)
+      try { localStorage.setItem(LAMP_BOX_STORAGE_KEY, JSON.stringify(box)) } catch { /* Keep this session's calibration if storage is unavailable. */ }
+    } else {
+      setSpeakerBox(box)
+      try { localStorage.setItem(SPEAKER_BOX_STORAGE_KEY, JSON.stringify(box)) } catch { /* Keep this session's calibration if storage is unavailable. */ }
+    }
     setCalibrationDraft(null)
     setCalibrating(false)
   }
@@ -271,11 +376,16 @@ export default function App() {
   const lampRect = lampBox && targeting.width > 0 && targeting.height > 0
     ? { x: lampBox.x * targeting.width, y: lampBox.y * targeting.height, width: lampBox.width * targeting.width, height: lampBox.height * targeting.height }
     : null
+  const speakerRect = speakerBox && targeting.width > 0 && targeting.height > 0
+    ? { x: speakerBox.x * targeting.width, y: speakerBox.y * targeting.height, width: speakerBox.width * targeting.width, height: speakerBox.height * targeting.height }
+    : null
   const draftRect = calibrationDraft && targeting.width > 0 && targeting.height > 0
     ? { x: calibrationDraft.x * targeting.width, y: calibrationDraft.y * targeting.height, width: calibrationDraft.width * targeting.width, height: calibrationDraft.height * targeting.height }
     : null
   const lampLabelX = lampRect ? Math.max(8, Math.min(targeting.width - 150, lampRect.x)) : 0
   const lampLabelY = lampRect ? Math.max(24, lampRect.y - 15) : 0
+  const speakerLabelX = speakerRect ? Math.max(8, Math.min(targeting.width - 150, speakerRect.x)) : 0
+  const speakerLabelY = speakerRect ? Math.max(24, speakerRect.y - 15) : 0
 
   return <main className={`shell ${live ? 'is-live' : ''} ${calibrating ? 'is-calibrating' : ''}`}>
     {/* Canvas: the camera is the interface */}
@@ -289,20 +399,26 @@ export default function App() {
         viewBox={`0 0 ${targeting.width || 1} ${targeting.height || 1}`}
         preserveAspectRatio="none"
         aria-hidden="true"
-        onPointerDown={beginCalibration}
+        onPointerDown={beginCalibrationDrag}
         onPointerMove={moveCalibration}
         onPointerUp={finishCalibration}
         onPointerCancel={cancelCalibration}
       >
-        {targeting.ray && rayEnd && <g className={`pointing-ray ${targeting.targeted ? 'targeted' : ''}`}>
+        {targeting.ray && rayEnd && <g className={`pointing-ray ${targeting.aiming ? 'targeted' : ''}`}>
           <line x1={targeting.ray.origin.x} y1={targeting.ray.origin.y} x2={rayEnd.x} y2={rayEnd.y}/>
           <circle cx={targeting.ray.origin.x} cy={targeting.ray.origin.y} r="4"/>
         </g>}
-        {lampRect && <g className={`lamp-bounds ${targeting.aiming ? 'aiming' : ''} ${targeting.targeted ? 'targeted' : ''}`}>
+        {lampRect && <g className={`lamp-bounds ${targeting.aiming && targeting.targetDevice === 'lamp' ? 'aiming' : ''} ${lampSelected ? 'targeted' : ''}`}>
           <rect className="bounds-fill" x={lampRect.x} y={lampRect.y} width={lampRect.width} height={lampRect.height} rx="9"/>
           <rect className="bounds-line" x={lampRect.x} y={lampRect.y} width={lampRect.width} height={lampRect.height} rx="9"/>
           <rect className="bounds-label-bg" x={lampLabelX} y={lampLabelY - 16} width="142" height="24" rx="12"/>
-          <text className="bounds-label" x={lampLabelX + 71} y={lampLabelY} textAnchor="middle">{targeting.targeted ? 'LAMP TARGETED' : targeting.aiming ? `AIMING · ${Math.round(targeting.dwellProgress * 100)}%` : 'LAMP · CALIBRATED'}</text>
+          <text className="bounds-label" x={lampLabelX + 71} y={lampLabelY} textAnchor="middle">{lampSelected ? 'LAMP TARGETED' : targeting.aiming && targeting.targetDevice === 'lamp' ? `AIMING · ${Math.round(targeting.dwellProgress * 100)}%` : 'LAMP · CALIBRATED'}</text>
+        </g>}
+        {speakerRect && <g className={`lamp-bounds speaker-bounds ${targeting.aiming && targeting.targetDevice === 'speaker' ? 'aiming' : ''} ${speakerTargeted ? 'targeted' : ''}`}>
+          <rect className="bounds-fill" x={speakerRect.x} y={speakerRect.y} width={speakerRect.width} height={speakerRect.height} rx="9"/>
+          <rect className="bounds-line" x={speakerRect.x} y={speakerRect.y} width={speakerRect.width} height={speakerRect.height} rx="9"/>
+          <rect className="bounds-label-bg" x={speakerLabelX} y={speakerLabelY - 16} width="156" height="24" rx="12"/>
+          <text className="bounds-label" x={speakerLabelX + 78} y={speakerLabelY} textAnchor="middle">{speakerTargeted ? 'SPEAKER TARGETED' : targeting.aiming && targeting.targetDevice === 'speaker' ? `AIMING · ${Math.round(targeting.dwellProgress * 100)}%` : 'SPEAKER · CALIBRATED'}</text>
         </g>}
         {draftRect && <rect className="calibration-draft" x={draftRect.x} y={draftRect.y} width={draftRect.width} height={draftRect.height} rx="8"/>}
       </svg>
@@ -310,8 +426,8 @@ export default function App() {
     </div>
 
     {calibrating && <div className="calibration-hud glass-strong">
-      <span>DRAG AROUND THE LAMP</span>
-      <small>Draw a box over the lamp in the camera view · Esc to cancel</small>
+      <span>DRAG AROUND THE {calibratingDevice === 'lamp' ? 'LAMP' : 'SPEAKER'}</span>
+      <small>Draw a box over the {calibratingDevice} in the camera view · Esc to cancel</small>
       <button onClick={cancelCalibration}>Cancel</button>
     </div>}
 
@@ -364,7 +480,13 @@ export default function App() {
     {lampSelected && <aside className="control glass-strong" aria-label="Living room lamp controls">
       <div className="control-head">
         <div><strong>Living room lamp</strong><span>{lampOn ? `${brightness}% brightness` : 'Off'}</span></div>
-        <span className="hand-control-status">HAND 2 · {controlStatus === null ? 'MOVE UP / DOWN' : controlStatus === 'fist' ? 'FIST · OFF' : controlStatus === 'open' ? 'OPEN · ON' : controlStatus === 'raise' ? 'BRIGHTNESS +20%' : 'BRIGHTNESS −20%'}</span>
+        <span className="hand-control-status">HAND 2 · {controlStatus === null ? 'MOVE UP / DOWN' : controlStatus === 'fist' ? 'FIST · OFF' : controlStatus === 'open' ? 'OPEN · ON' : controlStatus === 'raise' ? 'BRIGHTNESS +20%' : 'BRIGHTNESS −20%'} · LEFT PINCH · COLOR</span>
+      </div>
+      <div className="hue-readout" aria-label={`Lamp hue ${lampHue} degrees`}>
+        <i style={{ backgroundColor: `hsl(${lampHue} 85% 62%)`, boxShadow: `0 0 12px hsl(${lampHue} 85% 62% / 55%)` }}/>
+        <span>COLOR</span>
+        <strong>{lampHue}°</strong>
+        <div className="hue-spectrum" style={{ ['--hue-position' as string]: `${lampHue / 3.6}%` }}><b/></div>
       </div>
       <div className="control-level" style={{ ['--v' as string]: `${lampOn ? brightness : 0}%` }}>
         <span className="level-num">{lampOn ? brightness : 0}</span>
@@ -385,14 +507,34 @@ export default function App() {
       </article>
 
       <article className="panel glass">
-        <div className="panel-head"><div><h2>In your space</h2><p>Connected devices</p></div><button className="calibrate-button" onClick={() => { if (live) { setCalibrationDraft(null); setCalibrating(true) } }} disabled={!live}>{lampBox ? 'Recalibrate lamp' : 'Calibrate lamp'}</button></div>
-        <div className={`device-row ${lampSelected ? 'selected' : ''} ${targeting.targeted ? 'targeted' : ''}`}>
+        <div className="panel-head"><div><h2>In your space</h2><p>Connected devices</p></div><button className="calibrate-button" onClick={() => beginCalibration('lamp')} disabled={!live}>{lampBox ? 'Recalibrate lamp' : 'Calibrate lamp'}</button></div>
+        <div className={`device-row ${lampSelected ? 'selected' : ''} ${lampSelected ? 'targeted' : ''}`}>
           <span className="device-icon"><Icon name="bulb" size={19}/></span>
           <span className="device-info"><strong>Living room lamp</strong><span>IKEA · Color bulb</span></span>
           <span className="device-state"><i className={lampConnection === 'connected' ? '' : 'offline'}/>{lampConnection === 'connected' ? 'Online' : lampConnection === 'connecting' ? 'Connecting' : 'Offline'}</span>
           <span className={`lamp-glow ${lampOn ? 'on' : ''}`}><span/></span>
-          {targeting.targeted && <span className="targeted-badge">LAMP TARGETED</span>}
+          {lampSelected && <span className="targeted-badge">LAMP TARGETED</span>}
         </div>
+        <div className={`device-row speaker-row ${speakerSelected || speakerTargeted ? 'selected' : ''} ${speakerTargeted ? 'targeted' : ''}`}>
+          <button type="button" className="device-row-select" aria-pressed={speakerSelected} onClick={() => void selectSpeaker()}>
+            <span className="device-icon"><Icon name="speaker" size={19}/></span>
+            <span className="device-info"><strong>MacBook speakers</strong><span>{spotify.track ? `${spotify.track} · ${spotify.artist ?? 'Spotify'}` : 'Spotify · Local playback'}</span></span>
+            <span className="device-state"><i className={spotify.connected && !spotify.error ? '' : 'offline'}/>{spotify.error ? 'Check access' : spotify.connected ? spotify.playing ? 'Playing' : 'Connected' : 'Connect Spotify'}</span>
+          </button>
+          {speakerTargeted && <span className="targeted-badge">SPEAKER TARGETED</span>}
+          <button className="calibrate-button speaker-calibrate" onClick={() => beginCalibration('speaker')} disabled={!live}>{speakerBox ? 'Recalibrate' : 'Calibrate'}</button>
+        </div>
+        {(speakerSelected || speakerTargeted) && spotify.connected && <div className="spotify-controls">
+          {spotify.error && <span className="spotify-error" title={spotify.error}>Allow Spellcast to control Spotify in macOS Privacy &amp; Security.</span>}
+          {!spotify.error && <span className="spotify-track">{spotify.track ? `${spotify.track} — ${spotify.artist ?? 'Unknown artist'}` : 'Choose something to play in Spotify'}</span>}
+          {speakerTargeted && <span className="spotify-gesture-hint">LEFT PINCH · NEXT TRACK <i/> HAND 2 · {spotifyHandStatus === 'paused' ? 'PAUSED AT ZERO' : spotifyHandStatus === 'raise' ? 'VOLUME UP' : spotifyHandStatus === 'lower' ? 'VOLUME DOWN' : 'RAISE / LOWER VOLUME'}</span>}
+          <div className="spotify-actions">
+            <button type="button" aria-label="Previous track" title="Previous track" onClick={() => void controlSpotify('previous')}><Icon name="previous" size={15}/></button>
+            <button type="button" className="spotify-play" aria-label={spotify.playing ? 'Pause Spotify' : 'Play Spotify'} title={spotify.playing ? 'Pause' : 'Play'} onClick={() => void controlSpotify(spotify.playing ? 'pause' : 'play')}><Icon name={spotify.playing ? 'pause' : 'play'} size={14}/></button>
+            <button type="button" aria-label="Next track" title="Next track" onClick={() => void controlSpotify('next')}><Icon name="next" size={15}/></button>
+            <label className="spotify-volume"><span>VOL</span><input type="range" min={0} max={100} value={spotify.volume} aria-label="Spotify volume" onChange={event => changeSpotifyVolume(Number(event.target.value))}/></label>
+          </div>
+        </div>}
         <div className="panel-foot"><span><i className={lampConnection === 'connected' ? 'dot-on' : 'dot-off'}/>Zigbee2MQTT</span><span>{lampConnection === 'connected' ? 'Local network' : lampError || 'Check Mosquitto'}</span></div>
       </article>
     </section>

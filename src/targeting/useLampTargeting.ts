@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type MutableRefObject, type RefObject } fr
 import type { HandLandmarkerResult } from '@mediapipe/tasks-vision'
 import { detectPointingGesture } from '../gesture/pointingGesture'
 import { detectHandControlPose } from '../gesture/handPose'
+import { getPinchStrength } from '../gesture/pinchGesture'
 import { projectToPreview, type ScreenPoint } from '../tracking/projection'
 import type { NormalizedBox, PointingRay } from './rayTargeting'
 import { makePointingRay, rayIntersectsBox } from './rayTargeting'
@@ -11,6 +12,7 @@ export type LampTargetingState = {
   pointing: boolean
   aiming: boolean
   targeted: boolean
+  targetDevice: 'lamp' | 'speaker' | null
   targetEntry: number
   selectorHandIndex: number | null
   selectorHandedness: string | null
@@ -20,8 +22,10 @@ export type LampTargetingState = {
 }
 
 const INITIAL: LampTargetingState = {
-  ray: null, pointing: false, aiming: false, targeted: false, targetEntry: 0, selectorHandIndex: null, selectorHandedness: null, dwellProgress: 0, width: 0, height: 0
+  ray: null, pointing: false, aiming: false, targeted: false, targetDevice: null, targetEntry: 0, selectorHandIndex: null, selectorHandedness: null, dwellProgress: 0, width: 0, height: 0
 }
+
+const SELECTOR_PINCH_THRESHOLD = 0.34
 
 function smoothPoint(previous: ScreenPoint, next: ScreenPoint, amount: number): ScreenPoint {
   return { x: previous.x + (next.x - previous.x) * amount, y: previous.y + (next.y - previous.y) * amount }
@@ -43,7 +47,7 @@ export function useLampTargeting(
   viewportRef: RefObject<SVGSVGElement>,
   resultsRef: MutableRefObject<HandLandmarkerResult | null>,
   enabled: boolean,
-  lampBox: NormalizedBox | null
+  targetBoxes: { lamp: NormalizedBox | null; speaker: NormalizedBox | null }
 ) {
   const [state, setState] = useState(INITIAL)
   const smoothedRayRef = useRef<PointingRay | null>(null)
@@ -61,8 +65,10 @@ export function useLampTargeting(
     let frame = 0
     let lastPublish = 0
     let dwellStartedAt = 0
+    let dwellDevice: 'lamp' | 'speaker' | null = null
     let lastHitAt = 0
     let targeted = false
+    let targetDevice: 'lamp' | 'speaker' | null = null
     let selectorHandIndex: number | null = null
     let selectorHandedness: string | null = null
 
@@ -83,6 +89,10 @@ export function useLampTargeting(
         handIndexes = [selectorHandIndex]
       }
 
+      const selectedHand = targeted && handIndexes.length > 0 ? hands[handIndexes[0]] : undefined
+      const pinchStrength = selectedHand ? getPinchStrength(selectedHand) : null
+      const selectorPinching = pinchStrength !== null && pinchStrength <= SELECTOR_PINCH_THRESHOLD
+
       for (const handIndex of handIndexes) {
         const landmarks = hands[handIndex]
         if (!landmarks) continue
@@ -98,7 +108,11 @@ export function useLampTargeting(
           fallbackRay = candidateRay
           fallbackHandIndex = handIndex
         }
-        if (lampBox && rayIntersectsBox(candidateRay, lampBox, rect.width, rect.height)) {
+        const hitDevice = (['lamp', 'speaker'] as const).find(device => {
+          const box = targetBoxes[device]
+          return box && rayIntersectsBox(candidateRay, box, rect.width, rect.height)
+        })
+        if (hitDevice) {
           nextRay = candidateRay
           candidateHandIndex = handIndex
           break
@@ -112,13 +126,21 @@ export function useLampTargeting(
 
       const ray = smoothRay(smoothedRayRef.current, nextRay)
       smoothedRayRef.current = ray
-      const aiming = Boolean(ray && lampBox && rayIntersectsBox(ray, lampBox, rect.width, rect.height))
+      const aimingDevice = ray ? (['lamp', 'speaker'] as const).find(device => {
+        const box = targetBoxes[device]
+        return box && rayIntersectsBox(ray, box, rect.width, rect.height)
+      }) ?? null : null
+      const aiming = Boolean(aimingDevice)
 
       if (aiming) {
         lastHitAt = now
-        if (!dwellStartedAt) dwellStartedAt = now
-        if (now - dwellStartedAt >= 300 && !targeted) {
+        if (!dwellStartedAt || dwellDevice !== aimingDevice) {
+          dwellStartedAt = now
+          dwellDevice = aimingDevice
+        }
+        if (now - dwellStartedAt >= 300 && targetDevice !== aimingDevice) {
           targeted = true
+          targetDevice = aimingDevice
           selectorHandIndex = candidateHandIndex
           selectorHandedness = candidateHandIndex === null
             ? null
@@ -127,8 +149,13 @@ export function useLampTargeting(
         }
       } else {
         dwellStartedAt = 0
-        if (targeted && now - lastHitAt > 700) {
+        dwellDevice = null
+        if (selectorPinching) {
+          // The selecting hand may fold its index while pinching; hold selection until release.
+          lastHitAt = now
+        } else if (targeted && now - lastHitAt > 700) {
           targeted = false
+          targetDevice = null
           selectorHandIndex = null
           selectorHandedness = null
         }
@@ -145,6 +172,7 @@ export function useLampTargeting(
           pointing: Boolean(nextRay),
           aiming,
           targeted,
+          targetDevice,
           targetEntry: targetEntryRef.current,
           selectorHandIndex,
           selectorHandedness,
@@ -161,7 +189,7 @@ export function useLampTargeting(
       cancelAnimationFrame(frame)
       smoothedRayRef.current = null
     }
-  }, [enabled, lampBox, resultsRef, videoRef, viewportRef])
+  }, [enabled, targetBoxes, resultsRef, videoRef, viewportRef])
 
   return state
 }

@@ -44,6 +44,21 @@ export function playDing(): void {
   }
 }
 
+/** A soft recognition ping when the camera first detects a hand. */
+export function playHandDetected(): void {
+  try {
+    audioContext ??= new AudioContext()
+    const context = audioContext
+    const play = () => {
+      if (context.state === 'running') playWithContext(context, [523.25, 784], 0.16, 0.055)
+    }
+    if (context.state === 'running') play()
+    else void context.resume().then(play).catch(() => {})
+  } catch {
+    // Sound is a non-critical enhancement.
+  }
+}
+
 /** A lower, softer tone for when the sticky target selection ends. */
 export function playUnselectDing(): void {
   try {
@@ -56,6 +71,36 @@ export function playUnselectDing(): void {
         if (context.state === 'running') playWithContext(context, [392, 294], 0.3, 0.075)
       }).catch(() => { /* Sound must never interrupt gesture control. */ })
     }
+  } catch {
+    // Sound is a non-critical enhancement.
+  }
+}
+
+/** A soft, distinctive confirmation chime when the selecting hand pinches. */
+export function playPinchSelectDing(): void {
+  try {
+    audioContext ??= new AudioContext()
+    const context = audioContext
+    const play = () => {
+      if (context.state !== 'running') return
+      const now = context.currentTime
+      for (const [index, frequency] of [698.46, 1046.5].entries()) {
+        const start = now + index * 0.065
+        const oscillator = context.createOscillator()
+        const envelope = context.createGain()
+        oscillator.type = 'sine'
+        oscillator.frequency.setValueAtTime(frequency, start)
+        envelope.gain.setValueAtTime(0.0001, start)
+        envelope.gain.exponentialRampToValueAtTime(0.085, start + 0.008)
+        envelope.gain.exponentialRampToValueAtTime(0.0001, start + 0.17)
+        oscillator.connect(envelope)
+        envelope.connect(context.destination)
+        oscillator.start(start)
+        oscillator.stop(start + 0.18)
+      }
+    }
+    if (context.state === 'running') play()
+    else void context.resume().then(play).catch(() => {})
   } catch {
     // Sound is a non-critical enhancement.
   }

@@ -38,7 +38,6 @@ export function useTwoHandLampControl(
     let heightAnchorY: number | null = null
     let movement: -1 | 1 | null = null
     let movementSince = 0
-
     const update = (now: number) => {
       const input = inputRef.current
       const result = resultsRef.current
@@ -107,6 +106,7 @@ export function useTwoHandLampControl(
                 input.onBrightnessChange(nextBrightness)
               }
             }
+
           }
         }
       }

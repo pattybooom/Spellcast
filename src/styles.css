@@ -122,6 +122,11 @@ h1,h2,p{margin:0}
 .control-head strong{display:block;font-size:13px;font-weight:600;letter-spacing:-.01em}
 .control-head span{display:block;margin-top:4px;font-size:11px;color:var(--ink-2)}
 .control-head .hand-control-status{margin:2px 0 0;font:9px var(--dot);letter-spacing:.06em;color:var(--blue)}
+.hue-readout{height:28px;margin-top:12px;display:flex;align-items:center;gap:7px;color:var(--ink-2);font:9px var(--dot);letter-spacing:.06em}
+.hue-readout>i{width:9px;height:9px;flex:none;border:1px solid rgba(255,255,255,.45);border-radius:50%;transition:background-color .18s,box-shadow .18s}
+.hue-readout strong{color:var(--ink);font-size:10px}
+.hue-spectrum{position:relative;flex:1;height:5px;margin-left:3px;border-radius:4px;background:linear-gradient(90deg,#f44,#ff0,#0f8,#0cf,#55f,#f0c,#f44)}
+.hue-spectrum b{position:absolute;left:var(--hue-position);top:50%;width:9px;height:9px;border:2px solid #fff;border-radius:50%;background:transparent;box-shadow:0 0 7px rgba(0,0,0,.65);transform:translate(-50%,-50%);transition:left .18s}
 .control-level{position:relative;margin:16px 0 14px;height:84px;border-radius:20px;overflow:hidden;background:rgba(255,255,255,.07);border:1px solid var(--hair)}
 .control-level:before{content:"";position:absolute;inset:0;width:var(--v);background:linear-gradient(90deg,rgba(124,196,255,.18),rgba(124,196,255,.5));transition:width .12s}
 .level-num{position:absolute;left:16px;bottom:10px;font-family:var(--dot);font-weight:700;font-size:34px;line-height:1;color:var(--ink);pointer-events:none}
@@ -164,6 +169,22 @@ h1,h2,p{margin:0}
 .device-row:hover{background:rgba(255,255,255,.05)}
 .device-row.selected{background:var(--blue-soft);box-shadow:inset 0 0 0 1px rgba(124,196,255,.5)}
 .device-row.targeted{background:rgba(139,227,176,.12);box-shadow:inset 0 0 0 1px rgba(139,227,176,.7),0 0 18px rgba(139,227,176,.1)}
+.speaker-row{width:100%;height:54px;min-height:54px;flex:none;padding:0 8px;border:0;color:var(--ink);font:inherit;cursor:pointer}
+.speaker-row{position:relative;padding-right:92px}
+.speaker-row .device-row-select{position:absolute;inset:0 88px 0 0;width:calc(100% - 88px);height:100%;display:flex;align-items:center;gap:12px;padding:0 8px;border:0;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}
+.speaker-row .device-row-select:hover{background:transparent}
+.speaker-calibrate{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:9px;padding:6px 8px}
+.spotify-gesture-hint{font:9px var(--dot);letter-spacing:.06em;color:var(--blue);display:flex;align-items:center;gap:8px}
+.spotify-gesture-hint i{width:3px;height:3px;border-radius:50%;background:var(--green)}
+.spotify-controls{padding:2px 8px 10px 44px;display:grid;gap:8px}
+.spotify-track{overflow:hidden;color:var(--ink-2);font-size:10px;text-overflow:ellipsis;white-space:nowrap}
+.spotify-error{color:#ffc1b9;font-size:10px;line-height:1.4}
+.spotify-actions{display:flex;align-items:center;gap:7px}
+.spotify-actions>button{width:28px;height:28px;display:grid;place-items:center;border-radius:50%;color:var(--ink-2);background:rgba(255,255,255,.07);transition:background .16s,color .16s,transform .16s}
+.spotify-actions>button:hover{background:rgba(255,255,255,.15);color:var(--ink);transform:scale(1.06)}
+.spotify-actions>button.spotify-play{width:32px;height:32px;color:#0a0c10;background:#f3f5f8}
+.spotify-volume{flex:1;min-width:100px;margin-left:8px;display:flex;align-items:center;gap:8px;color:var(--ink-3);font:9px var(--dot)}
+.spotify-volume input{width:100%;height:4px;accent-color:#8be3b0;cursor:pointer}
 .targeted-badge{position:absolute;right:8px;top:-12px;padding:4px 8px;border:1px solid rgba(139,227,176,.55);border-radius:10px;background:rgba(16,35,28,.94);color:#c8f8d9;font:9px var(--dot);letter-spacing:.08em;box-shadow:0 0 14px rgba(139,227,176,.18)}
 .device-icon{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;background:rgba(255,255,255,.08);color:var(--blue)}
 .device-info{display:flex;flex-direction:column;gap:4px}

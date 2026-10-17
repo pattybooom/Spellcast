@@ -1,5 +1,7 @@
 import { HandLandmarker, type HandLandmarkerResult } from '@mediapipe/tasks-vision'
 import { projectToPreview, type ScreenPoint } from './projection'
+import { getPinchStrength } from '../gesture/pinchGesture'
+import { PINCH_THRESHOLD } from '../control/usePinchColorControl'
 
 type Point = ScreenPoint
 
@@ -26,13 +28,16 @@ export function drawHandOverlay(
       : target
   })
 
-  for (const points of hands) {
+  for (const [handIndex, points] of hands.entries()) {
+    const pinching = (getPinchStrength(result.landmarks[handIndex]) ?? Infinity) <= PINCH_THRESHOLD
+    const accent = pinching ? '#ff4f5e' : '#7cc4ff'
+    const accentGlow = pinching ? 'rgba(255, 65, 84, 0.8)' : 'rgba(124, 196, 255, 0.7)'
     context.save()
     context.lineCap = 'round'
     context.lineJoin = 'round'
-    context.strokeStyle = 'rgba(124, 196, 255, 0.82)'
-    context.lineWidth = 1.6
-    context.shadowColor = 'rgba(124, 196, 255, 0.7)'
+    context.strokeStyle = pinching ? 'rgba(255, 79, 94, 0.94)' : 'rgba(124, 196, 255, 0.82)'
+    context.lineWidth = pinching ? 2 : 1.6
+    context.shadowColor = accentGlow
     context.shadowBlur = 8
     context.beginPath()
     for (const { start, end } of HandLandmarker.HAND_CONNECTIONS) {
@@ -50,7 +55,7 @@ export function drawHandOverlay(
       const radius = index === 8 ? 3.6 : isTip ? 2.8 : index === 0 ? 2.5 : 1.9
       context.beginPath()
       context.arc(point.x, point.y, radius, 0, Math.PI * 2)
-      context.fillStyle = isTip ? '#c5eaff' : '#7cc4ff'
+      context.fillStyle = pinching ? accent : isTip ? '#c5eaff' : accent
       context.fill()
       context.lineWidth = 1
       context.strokeStyle = 'rgba(8, 16, 26, 0.78)'

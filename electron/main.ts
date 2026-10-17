@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, session } from 'electron'
 import { connect, type MqttClient } from 'mqtt'
 import { join } from 'node:path'
+import { controlSpotify, getSpotifyState, openSpotify, setSpotifyVolume, type SpotifyAction } from './spotify'
 
 // This is a desktop app, so interaction feedback should not require a browser-style media gesture.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
@@ -56,7 +57,7 @@ function connectMqtt() {
   })
 }
 
-function publishLampCommand(command: Record<string, string | number>) {
+function publishLampCommand(command: Record<string, unknown>) {
   if (!mqttClient?.connected) return { ok: false, error: 'MQTT is not connected.' }
   mqttClient.publish(`${lampTopic}/set`, JSON.stringify(command), { qos: 1 }, error => {
     if (error) {
@@ -67,6 +68,13 @@ function publishLampCommand(command: Record<string, string | number>) {
   return { ok: true }
 }
 
+function hueToRgb(hue: number) {
+  const h = (hue % 360) / 60
+  const x = 1 - Math.abs((h % 2) - 1)
+  const channels = h < 1 ? [1, x, 0] : h < 2 ? [x, 1, 0] : h < 3 ? [0, 1, x] : h < 4 ? [0, x, 1] : h < 5 ? [x, 0, 1] : [1, 0, x]
+  return { r: Math.round(channels[0] * 255), g: Math.round(channels[1] * 255), b: Math.round(channels[2] * 255) }
+}
+
 ipcMain.handle('lamp:get-state', () => lampState)
 ipcMain.handle('lamp:set-power', (_event, state: 'ON' | 'OFF' | 'TOGGLE') => {
   if (!['ON', 'OFF', 'TOGGLE'].includes(state)) return { ok: false, error: 'Invalid power state.' }
@@ -75,6 +83,37 @@ ipcMain.handle('lamp:set-power', (_event, state: 'ON' | 'OFF' | 'TOGGLE') => {
 ipcMain.handle('lamp:set-brightness', (_event, brightness: number) => {
   if (!Number.isFinite(brightness)) return { ok: false, error: 'Invalid brightness.' }
   return publishLampCommand({ brightness: Math.round(Math.max(1, Math.min(254, brightness))) })
+})
+ipcMain.handle('lamp:set-hue', (_event, hue: number) => {
+  if (!Number.isFinite(hue) || hue < 0 || hue >= 360) return { ok: false, error: 'Invalid hue.' }
+  return publishLampCommand({ color: hueToRgb(Math.round(hue)) })
+})
+
+ipcMain.handle('spotify:get-state', () => getSpotifyState())
+ipcMain.handle('spotify:open', async () => {
+  try {
+    await openSpotify()
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Could not open Spotify.' }
+  }
+})
+ipcMain.handle('spotify:control', async (_event, action: SpotifyAction) => {
+  if (!['play', 'pause', 'toggle', 'next', 'previous'].includes(action)) return { ok: false, error: 'Invalid Spotify action.' }
+  try {
+    await controlSpotify(action)
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Spotify control failed.' }
+  }
+})
+ipcMain.handle('spotify:set-volume', async (_event, volume: number) => {
+  try {
+    await setSpotifyVolume(volume)
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Spotify volume control failed.' }
+  }
 })
 
 function createWindow() {

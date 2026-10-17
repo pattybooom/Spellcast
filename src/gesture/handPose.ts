@@ -36,3 +36,9 @@ export function getPalmCenterY(landmarks: NormalizedLandmark[]): number | null {
   if (landmarks.length < 21) return null
   return (landmarks[0].y + landmarks[5].y + landmarks[9].y + landmarks[13].y + landmarks[17].y) / 5
 }
+
+/** Palm center horizontal position in MediaPipe's source image coordinates. */
+export function getPalmCenterX(landmarks: NormalizedLandmark[]): number | null {
+  if (landmarks.length < 21) return null
+  return (landmarks[0].x + landmarks[5].x + landmarks[9].x + landmarks[13].x + landmarks[17].x) / 5
+}

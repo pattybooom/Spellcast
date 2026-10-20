@@ -5,6 +5,8 @@
   "description": "A spatial interface for controlling your environment",
   "main": "out/main/index.js",
   "scripts": {
+    "start": "/opt/homebrew/opt/node@24/bin/node scripts/start-spellcast.mjs",
+    "dev:electron": "electron-vite dev",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",

@@ -78,6 +78,13 @@ export class SceneController {
     }, 900)
   }
 
+  /** Manual bulb changes keep the selected scene and its music, but end Party's competing color cycle. */
+  manualLampOverride() {
+    if (!this.state.cyclingColors) return
+    this.cancel()
+    this.update({ ...this.state, applying: false, cyclingColors: false })
+  }
+
   /** Selecting no scene or closing the app ends the active effect and pauses scene music. */
   async stop(pauseMusic = true) {
     const previous = this.state

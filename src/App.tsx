@@ -124,8 +124,8 @@ export default function App() {
   usePinchSongControl(tracking.resultsRef, camera === 'live' && tracking.status === 'ready' && !scene.active && !scene.applying, speakerTargeted, () => { void controlSpotify('next') })
   const spotifyHandStatus = useSpotifyHandControl(
     tracking.resultsRef,
-    camera === 'live' && tracking.status === 'ready' && (!scene.applying || Boolean(scene.active)),
-    speakerTargeted || Boolean(scene.active),
+    camera === 'live' && tracking.status === 'ready' && !scene.active && !scene.applying,
+    speakerTargeted,
     targeting.selectorHandIndex,
     targeting.selectorHandedness,
     spotify.volume,
@@ -142,8 +142,8 @@ export default function App() {
   )
   const controlStatus = useTwoHandLampControl(
     tracking.resultsRef,
-    camera === 'live' && tracking.status === 'ready' && !scene.active && !scene.applying,
-    lampSelected,
+    camera === 'live' && tracking.status === 'ready' && !scene.applying,
+    lampSelected || Boolean(scene.active),
     targeting.selectorHandIndex,
     targeting.selectorHandedness,
     brightness,
@@ -487,7 +487,7 @@ export default function App() {
     <section className={`scene-strip glass-strong ${scene.active ? `is-${scene.active}` : 'is-none'}`} aria-label="Current scene" aria-live="polite">
       <div className="scene-heading"><span>{scene.applying ? 'CHANGING SCENE' : 'CURRENT SCENE'}</span><strong>{scene.applying ? 'Applying…' : scene.active ? SCENES[scene.active].label : 'No scene'}</strong></div>
       {scene.active && <div className="scene-current-detail"><span>{SCENES[scene.active].description}</span><small>{SCENES[scene.active].music}</small></div>}
-      {live && <p className="scene-gesture-hint" role="status">{scene.applying ? 'Applying scene…' : sceneGestureStatus === 'show-two-hands' ? 'Show both hands in the camera view' : sceneGestureStatus === 'first-touch-detected' ? 'First touch · Tap index fingers together once more' : sceneGestureStatus === 'second-touch-detected' ? 'Second touch detected' : sceneGestureStatus === 'release-fingers' ? 'Separate index fingers to switch again' : scene.active === 'party' ? 'Touch both index fingers together twice to end Party' : 'Touch both index fingers together twice to change scene'}</p>}
+      {live && <p className="scene-gesture-hint" role="status">{scene.applying ? 'Applying scene…' : tracking.handCount === 0 ? 'No hands detected · Move back, show a full open palm, and face it toward the camera' : sceneGestureStatus === 'show-two-hands' ? `${tracking.handCount} hand${tracking.handCount === 1 ? '' : 's'} detected · Show both hands` : sceneGestureStatus === 'first-touch-detected' ? 'First touch · Tap index fingers together once more' : sceneGestureStatus === 'second-touch-detected' ? 'Second touch detected' : sceneGestureStatus === 'release-fingers' ? 'Separate index fingers to switch again' : scene.active === 'party' ? 'Touch both index fingers together twice to end Party' : 'Touch both index fingers together twice to change scene'}</p>}
       {(scene.error || sceneError) && <p className="scene-error" role="alert">{sceneError || scene.error}</p>}
     </section>
 
@@ -509,10 +509,10 @@ export default function App() {
       <button className="stop-button" onClick={stopCamera} aria-label="Turn camera off"><Icon name="stop" size={12}/>Stop</button>
     </div>}
 
-    {lampSelected && <aside className="control glass-strong" aria-label="Living room lamp controls">
+    {(lampSelected || Boolean(scene.active)) && <aside className="control glass-strong" aria-label="Living room lamp controls">
       <div className="control-head">
         <div><strong>Living room lamp</strong><span>{lampOn ? `${brightness}% brightness` : 'Off'}</span></div>
-        <span className="hand-control-status">HAND 2 · {controlStatus === null ? 'MOVE UP / DOWN' : controlStatus === 'fist' ? 'FIST · OFF' : controlStatus === 'open' ? 'OPEN · ON' : controlStatus === 'raise' ? 'BRIGHTNESS +20%' : 'BRIGHTNESS −20%'} · LEFT PINCH · COLOR</span>
+        <span className="hand-control-status">HAND 2 · {controlStatus === null ? 'MOVE UP / DOWN' : controlStatus === 'fist' ? 'FIST · OFF' : controlStatus === 'open' ? 'OPEN · ON' : controlStatus === 'raise' ? 'BRIGHTNESS +20%' : 'BRIGHTNESS −20%'}{scene.active ? ' · LIGHT' : ' · LEFT PINCH · COLOR'}</span>
       </div>
       <div className="hue-readout" aria-label={`Lamp hue ${lampHue} degrees`}>
         <i style={{ backgroundColor: `hsl(${lampHue} 85% 62%)`, boxShadow: `0 0 12px hsl(${lampHue} 85% 62% / 55%)` }}/>
@@ -549,7 +549,7 @@ export default function App() {
         {(speakerSelected || speakerTargeted || scene.active) && spotify.connected && <div className="spotify-controls">
           {spotify.error && <span className="spotify-error" title={spotify.error}>Allow Spellcast to control Spotify in macOS Privacy &amp; Security.</span>}
           {!spotify.error && <span className="spotify-track">{spotify.track ? `${spotify.track} — ${spotify.artist ?? 'Unknown artist'}` : 'Choose something to play in Spotify'}</span>}
-          {(speakerTargeted || scene.active) && <span className="spotify-gesture-hint">{scene.active ? 'HAND 2 · ' : 'LEFT PINCH · NEXT TRACK · HAND 2 · '}{spotifyHandStatus === 'paused' ? 'PAUSED AT ZERO' : spotifyHandStatus === 'raise' ? 'VOLUME UP' : spotifyHandStatus === 'lower' ? 'VOLUME DOWN' : 'RAISE / LOWER VOLUME'}</span>}
+          {(speakerTargeted || scene.active) && <span className="spotify-gesture-hint">{scene.active ? 'HAND 2 CONTROLS LIGHT · USE BUTTONS FOR MUSIC' : `LEFT PINCH · NEXT TRACK · HAND 2 · ${spotifyHandStatus === 'paused' ? 'PAUSED AT ZERO' : spotifyHandStatus === 'raise' ? 'VOLUME UP' : spotifyHandStatus === 'lower' ? 'VOLUME DOWN' : 'RAISE / LOWER VOLUME'}`}</span>}
           <div className="spotify-actions">
             <button type="button" aria-label="Previous track" title="Previous track" onClick={() => void controlSpotify('previous')}><Icon name="previous" size={15}/></button>
             <button type="button" className="spotify-play" aria-label={spotify.playing ? 'Pause Spotify' : 'Play Spotify'} title={spotify.playing ? 'Pause' : 'Play'} onClick={() => void controlSpotify(spotify.playing ? 'pause' : 'play')}><Icon name={spotify.playing ? 'pause' : 'play'} size={14}/></button>

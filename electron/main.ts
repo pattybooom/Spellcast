@@ -114,17 +114,17 @@ function hueToRgb(hue: number) {
 ipcMain.handle('lamp:get-state', () => lampState)
 ipcMain.handle('lamp:set-power', async (_event, state: 'ON' | 'OFF' | 'TOGGLE') => {
   if (!['ON', 'OFF', 'TOGGLE'].includes(state)) return { ok: false, error: 'Invalid power state.' }
-  await scenes.stop(false)
+  scenes.manualLampOverride()
   return publishLampCommand({ state })
 })
 ipcMain.handle('lamp:set-brightness', async (_event, brightness: number) => {
   if (!Number.isFinite(brightness)) return { ok: false, error: 'Invalid brightness.' }
-  await scenes.stop(false)
+  scenes.manualLampOverride()
   return publishLampCommand({ brightness: Math.round(Math.max(1, Math.min(254, brightness))) })
 })
 ipcMain.handle('lamp:set-hue', async (_event, hue: number) => {
   if (!Number.isFinite(hue) || hue < 0 || hue >= 360) return { ok: false, error: 'Invalid hue.' }
-  await scenes.stop(false)
+  scenes.manualLampOverride()
   return publishLampCommand({ color: hueToRgb(Math.round(hue)) })
 })
 
